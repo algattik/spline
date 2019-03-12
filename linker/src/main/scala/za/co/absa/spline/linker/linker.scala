@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Barclays Africa Group Limited
+ * Copyright 2019 ABSA Group Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,10 @@
  * limitations under the License.
  */
 
-package za.co.absa.spline.linker.boundary
+package za.co.absa.spline
 
-object ReaderProperties {
-  val harvesterServersProperty = "harvester.kafka.servers"
-  val lineageTopicProperty = "harvester.topic.lineage"
-  val eventsTopicProperty = "harvester.topic.events"
-  val defaultLineageTopic = "lineages"
-  val defaultEventsTopic = "events"
-  val harvesterStartingOffsetsProperty = "harvester.startingOffsets"
-  val defaultStartingOffsets = "latest"
+package object linker {
+
+  trait _package
+
 }
