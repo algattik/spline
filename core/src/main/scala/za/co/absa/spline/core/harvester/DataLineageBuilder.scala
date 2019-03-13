@@ -25,7 +25,7 @@ import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.execution.{LeafExecNode, SparkPlan}
 import scalaz.Scalaz._
 import za.co.absa.spline.core.harvester.DataLineageBuilder._
-import za.co.absa.spline.coresparkadapterapi.{SaveAsTableCommand, SaveJDBCCommand, WriteCommand, WriteCommandParserFactory}
+import za.co.absa.spline.coresparkadapterapi._
 import za.co.absa.spline.model._
 
 class DataLineageBuilder(logicalPlan: LogicalPlan, executedPlanOpt: Option[SparkPlan], sparkContext: SparkContext)
@@ -36,6 +36,7 @@ class DataLineageBuilder(logicalPlan: LogicalPlan, executedPlanOpt: Option[Spark
   private val writeCommandParser = writeCommandParserFactory.writeParser()
   private val clusterUrl: Option[String] = sparkContext.getConf.getOption("spark.master")
   private val tableCommandParser = writeCommandParserFactory.saveAsTableParser(clusterUrl)
+  private val jdbcCommandParser = writeCommandParserFactory.jdbcParser()
 
   def buildLineage(): Option[DataLineage] = {
     val builders = getOperations(logicalPlan)
@@ -82,19 +83,16 @@ class DataLineageBuilder(logicalPlan: LogicalPlan, executedPlanOpt: Option[Spark
 
           if (maybeExistingBuilder.isEmpty) {
 
-            //try to find all possible commands for traversing- save to filesystem, saveAsTable, JDBC
-            val writes = writeCommandParser.
-                asWriteCommandIfPossible(curOpNode).
-                map(wc => Seq(wc.query)).
-                getOrElse(Nil)
+            val queries = Array(jdbcCommandParser, writeCommandParser, tableCommandParser).map(
+            _.asWriteCommandIfPossible(curOpNode).map(wc => wc.query)
+            )
 
-            val tables = tableCommandParser.
-              asWriteCommandIfPossible(curOpNode).
-              map(wc => Seq(wc.query)).
-              getOrElse(Nil)
-
-            var newNodesToProcess: Seq[LogicalPlan] = writes ++ tables
-            if (newNodesToProcess.isEmpty) newNodesToProcess = curOpNode.children
+            val newNodesToProcess: Seq[LogicalPlan] = queries match {
+              case Array(Some(jdbcPlan),_,_) => Seq(jdbcPlan)
+              case Array(_, Some(fsWrite), _) => Seq(fsWrite)
+              case Array(_, _, Some(tableWrite)) => Seq(tableWrite)
+              case _ => curOpNode.children
+            }
 
             traverseAndCollect(
               curBuilder +: accBuilders,
@@ -121,19 +119,23 @@ class DataLineageBuilder(logicalPlan: LogicalPlan, executedPlanOpt: Option[Spark
       case s: Aggregate => new AggregateNodeBuilder(s)
       case a: SubqueryAlias => new AliasNodeBuilder(a)
       case lr: LogicalRelation => new ReadNodeBuilder(lr) with HDFSAwareBuilder
+      case wc if jdbcCommandParser.matches(op) =>
+        val (readMetrics: Metrics, writeMetrics: Metrics) = getMetrics()
+        val tableCmd = jdbcCommandParser.asWriteCommand(wc).asInstanceOf[SaveJDBCCommand]
+        new SaveJDBCCommandNodeBuilder(tableCmd, writeMetrics, readMetrics)
       case wc if writeCommandParser.matches(op) =>
-        val (readMetrics: Metrics, writeMetrics: Metrics) = makeMetrics()
+        val (readMetrics: Metrics, writeMetrics: Metrics) = getMetrics()
         val writeCmd = writeCommandParser.asWriteCommand(wc).asInstanceOf[WriteCommand]
         new WriteNodeBuilder(writeCmd, writeMetrics, readMetrics) with HDFSAwareBuilder
       case wc if tableCommandParser.matches(op) =>
-        val (readMetrics: Metrics, writeMetrics: Metrics) = makeMetrics()
+        val (readMetrics: Metrics, writeMetrics: Metrics) = getMetrics()
         val tableCmd = tableCommandParser.asWriteCommand(wc).asInstanceOf[SaveAsTableCommand]
         new SaveAsTableNodeBuilder(tableCmd, writeMetrics, readMetrics)
       case x => new GenericNodeBuilder(x)
     }
   }
 
-  private def makeMetrics(): (Metrics, Metrics) = {
+  private def getMetrics(): (Metrics, Metrics) = {
     executedPlanOpt.
       map(getExecutedReadWriteMetrics).
       getOrElse((Map.empty, Map.empty))
