@@ -16,6 +16,7 @@
 import { Operation } from 'src/app/generated/models/operation';
 
 export interface CytoscapeOperationVM extends Operation {
+    id: string
     color: string
     icon: number
 }

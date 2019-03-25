@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 ABSA Group Limited
+ * Copyright 2019 ABSA Group Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,19 +14,22 @@
  * limitations under the License.
  */
 
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { OperationType } from 'src/app/types/operationType';
-import { ExecutedLogicalPlan, Operation } from 'src/app/generated/models';
+import { ExecutedLogicalPlan, Operation, OperationDetails, AttributeRef, DataType } from 'src/app/generated/models';
 import { CytoscapeGraphVM } from 'src/app/viewModels/cytoscape/cytoscapeGraphVM';
 import { ExecutedLogicalPlanVM } from 'src/app/viewModels/executedLogicalPlanVM';
 import { CytoscapeOperationVM } from 'src/app/viewModels/cytoscape/cytoscapeOperationVM';
 import * as _ from 'lodash';
-import { ExecutionPlanControllerService } from 'src/app/generated/services';
+import { ExecutionPlanControllerService, OperationDetailsControllerService } from 'src/app/generated/services';
 import { StrictHttpResponse } from 'src/app/generated/strict-http-response';
 import { ConfigService } from '../config/config.service';
+import { OperationDetailsVM } from 'src/app/viewModels/OperationDetailsVM';
+import { AttributeVM } from 'src/app/viewModels/AttributeVM';
+import { DataTypeVM } from 'src/app/viewModels/DataTypeVM';
 
 
 @Injectable({
@@ -35,18 +38,16 @@ import { ConfigService } from '../config/config.service';
 
 export class LineageGraphService {
 
-  // TODO : Define constants to the whole app in a seperated file with a service accessor
-  private mockRestApiDetails = 'http://localhost:3000/details/';
-
-  detailsInfo: any
+  detailsInfo: OperationDetailsVM
 
   executedLogicalPlan: ExecutedLogicalPlanVM
 
   constructor(
-    private http: HttpClient,
-    private executionPlanControllerService: ExecutionPlanControllerService
+    private executionPlanControllerService: ExecutionPlanControllerService,
+    private operationDetailsControllerService: OperationDetailsControllerService
   ) {
     executionPlanControllerService.rootUrl = ConfigService.settings.apiUrl
+    operationDetailsControllerService.rootUrl = ConfigService.settings.apiUrl
   }
 
   public getExecutedLogicalPlan(executionPlanId: string): Observable<ExecutedLogicalPlanVM> {
@@ -66,8 +67,9 @@ export class LineageGraphService {
     cytoscapeGraphVM.edges = []
     _.each(executedLogicalPlanHttpResponse.body.plan.nodes, function (node: Operation) {
       let cytoscapeOperation = {} as CytoscapeOperationVM
-      cytoscapeOperation.operationType = node.operationType
-      cytoscapeOperation.id = node.id
+      cytoscapeOperation._type = node._type
+      cytoscapeOperation.id = node._id
+      cytoscapeOperation._id = node._id
       cytoscapeOperation.name = node.name
       cytoscapeOperation.color = lineageGraphService.getColorFromOperationType(node.name)
       cytoscapeOperation.icon = lineageGraphService.getIconFromOperationType(node.name)
@@ -80,20 +82,78 @@ export class LineageGraphService {
     executedLogicalPlanVM.execution = executedLogicalPlanHttpResponse.body.execution
     executedLogicalPlanVM.plan = cytoscapeGraphVM
     return executedLogicalPlanVM
+
   }
 
-  /**
-   * Get the details of a node and push it to the behavior subject
-   */
-  public getDetailsInfo(nodeId: string) {
-    // TODO : Use a Url Builder Service
-    let url = this.mockRestApiDetails + nodeId
-    this.http.get(url).pipe(
+  public getDetailsInfo(nodeId: string): Observable<OperationDetailsVM> {
+    return this.operationDetailsControllerService.operationUsingGETResponse(nodeId).pipe(
+      map(response => {
+        this.detailsInfo = this.toOperationDetailsView(response)
+        return this.detailsInfo
+      }),
       catchError(this.handleError)
-    ).subscribe(res => {
-      this.detailsInfo = res
-    });
+    )
   }
+
+  public toOperationDetailsView(operationDetailsVMHttpResponse: StrictHttpResponse<OperationDetails>): OperationDetailsVM {
+
+    const operationDetailsVm = {} as OperationDetailsVM
+    const lineageGraphService = this
+    operationDetailsVm.inputs = operationDetailsVMHttpResponse.body.inputs
+    operationDetailsVm.output = operationDetailsVMHttpResponse.body.output
+    operationDetailsVm.operation = operationDetailsVMHttpResponse.body.operation
+
+    let schemas: AttributeVM[][] = [] as Array<Array<AttributeVM>>
+    _.each(operationDetailsVMHttpResponse.body.schemas, function (attributeRefArray: Array<AttributeRef>) {
+      let attributes = [] as Array<AttributeVM>
+      _.each(attributeRefArray, function (attributeRef: AttributeRef) {
+        let attribute = lineageGraphService.getAttribute(attributeRef.dataTypeId, operationDetailsVMHttpResponse.body.schemasDefinition, attributeRefArray, attributeRef.name)
+        attributes.push(attribute)
+      })
+      schemas.push(attributes)
+    })
+    operationDetailsVm.schemas = schemas
+    return operationDetailsVm
+  }
+
+  public getAttribute(attributeId: string, schemaDefinition: Array<DataType>, attributeRefArray: Array<AttributeRef>, attributeName: string = null): AttributeVM {
+
+    const lineageGraphService = this
+    let dataType: DataType = this.getDataType(schemaDefinition, attributeId)
+    let attribute = {} as AttributeVM
+    let dataTypeVM = {} as DataTypeVM
+    dataTypeVM._type = dataType._type
+    dataTypeVM.name = dataType.name
+
+    switch (dataType._type) {
+      case "Simple":
+        attribute.name = attributeName ? attributeName : dataType._type
+        attribute.dataType = dataTypeVM
+        return attribute
+      case "Array":
+        attribute.name = attributeName
+        dataTypeVM.elementDataType = lineageGraphService.getAttribute(dataType.elementDataTypeId, schemaDefinition, attributeRefArray, attributeName)
+        dataTypeVM.name = "Array"
+        attribute.dataType = dataTypeVM
+        return attribute
+      case "Struct":
+        attribute.name = attributeName
+        dataTypeVM.children = [] as Array<AttributeVM>
+        _.each(dataType.fields, function (attributeRef: AttributeRef) {
+          dataTypeVM.children.push(lineageGraphService.getAttribute(attributeRef.dataTypeId, schemaDefinition, attributeRefArray, attributeRef.name))
+        })
+        dataTypeVM.name = "Struct"
+        attribute.dataType = dataTypeVM
+        return attribute
+    }
+  }
+
+  private getDataType(schemaDefinition: Array<DataType>, dataTypeId: string): DataType {
+    return _.find(schemaDefinition, function (schemaDef: DataType) {
+      return schemaDef._id == dataTypeId
+    })
+  }
+
 
   public getIconFromOperationType(operation: string): number {
     switch (operation) {

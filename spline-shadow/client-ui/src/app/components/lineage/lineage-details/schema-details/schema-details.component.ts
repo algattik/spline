@@ -21,6 +21,8 @@ import * as _ from 'lodash';
 import { Expression } from 'src/app/viewModels/expression';
 import { ExpressionType } from 'src/app/types/expressionType';
 import { ExecutedLogicalPlanVM } from 'src/app/viewModels/executedLogicalPlanVM';
+import { OperationDetailsVM } from 'src/app/viewModels/OperationDetailsVM';
+import { AttributeVM } from 'src/app/viewModels/AttributeVM';
 
 
 @Component({
@@ -46,7 +48,7 @@ export class SchemaDetailsComponent implements AfterViewInit {
         container.remove(0)
       }
       if (this.getDetails()) {
-        const type = this.getType(this.getDetails())
+        const type = this.getType()
         const factory = this.componentFactoryResolver.resolveComponentFactory(ExpressionComponents.get(type))
         let instance = container.createComponent(factory).instance
         instance.expressions = this.getExpressions(this.getDetails())
@@ -56,23 +58,20 @@ export class SchemaDetailsComponent implements AfterViewInit {
     })
   }
 
-  getDetails(): any {
+  getDetails(): OperationDetailsVM {
     return this.lineageGraphService.detailsInfo
   }
 
   getIcon(): string {
-    return this.getDetails() ? String.fromCharCode(this.lineageGraphService.getIconFromOperationType(this.getType(this.getDetails()))) : undefined
+    return this.getDetails() ? String.fromCharCode(this.lineageGraphService.getIconFromOperationType(this.getType())) : undefined
   }
 
   getOperationColor(): string {
-    return this.getDetails() ? this.lineageGraphService.getColorFromOperationType(this.getType(this.getDetails())) : undefined
+    return this.getDetails() ? this.lineageGraphService.getColorFromOperationType(this.getType()) : undefined
   }
 
-  getType(property?: any): any {
-    if (!property) {
-      property = this.getDetails()
-    }
-    return property._typeHint ? property._typeHint.split('.').pop() : undefined
+  getType(property?: any): string {
+    return property ? property._type : this.getDetails().operation.name
   }
 
   getExpressions(property: any): Expression[] {
@@ -96,8 +95,8 @@ export class SchemaDetailsComponent implements AfterViewInit {
         }
         // Build the dropped Attributes expressions
         let inputs = []
-        _.each(property.mainProps.inputs, schemaIndex => inputs = _.concat(inputs, property.mainProps.schemas[schemaIndex]))
-        const output = property.mainProps.schemas[property.mainProps.output]
+        _.each(property.inputs, schemaIndex => inputs = _.concat(inputs, property.schemas[schemaIndex]))
+        const output = property.schemas[property.output]
         const diff = _.differenceBy(inputs, output, 'name')
         if (diff.length > 0) {
           const title = "Dropped Attributes"
@@ -168,11 +167,11 @@ export class SchemaDetailsComponent implements AfterViewInit {
     }
   }
 
-  getInputs(): any[] {
+  getInputs(): AttributeVM[] {
     if (this.getDetails()) {
       let inputs = []
-      this.getDetails().mainProps.inputs.forEach(input => {
-        inputs.push(this.getDetails().mainProps.schemas[input])
+      this.getDetails().inputs.forEach(input => {
+        inputs.push(this.getDetails().schemas[input])
       })
       return inputs
     } else {
@@ -180,8 +179,8 @@ export class SchemaDetailsComponent implements AfterViewInit {
     }
   }
 
-  getOutput(): any {
-    return this.getDetails() ? this.getDetails().mainProps.schemas[this.getDetails().mainProps.output] : null
+  getOutput(): AttributeVM[] {
+    return this.getDetails() ? this.getDetails().schemas[this.getDetails().output] : null
   }
 
   getExecutionPlanVM(): ExecutedLogicalPlanVM {
