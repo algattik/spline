@@ -4,8 +4,7 @@ import java.util.UUID
 import za.co.absa.spline.gateway.rest.model.DataType.Id
 
 trait DataType {
-  val _id:Id
-  val _type: String
+  val _id: Id
   val nullable: Boolean
 }
 

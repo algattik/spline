@@ -2,10 +2,9 @@ package za.co.absa.spline.gateway.rest.model
 
 case class OperationDetails
 (
-  operation : Operation,
-  // TODO : Use util.java.list
-  schemasDefinition :  Array[DataType],
-  schemas : Array[Array[AttributeRef]],
+  operation: Operation,
+  schemasDefinition: Array[DataType],
+  schemas: Array[Array[AttributeRef]],
   inputs: Array[Integer],
   output: Integer
 

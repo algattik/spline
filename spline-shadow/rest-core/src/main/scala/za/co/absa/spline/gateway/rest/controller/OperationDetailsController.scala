@@ -40,7 +40,7 @@ class OperationDetailsController @Autowired()
   }
 
   def reduceSchemaDefinition(operationDetails: OperationDetails): OperationDetails = {
-    val dataTypesIdToKeep = operationDetails.schemas.flatMap(schema=>schema.map(attributeRef=>attributeRef.dataTypeId))
+    val dataTypesIdToKeep = operationDetails.schemas.flatMap(schema => schema.map(attributeRef => attributeRef.dataTypeId))
     println(dataTypesIdToKeep)
     val schemaDefinitionDataTypes = operationDetails.schemasDefinition
 
@@ -49,28 +49,23 @@ class OperationDetailsController @Autowired()
   }
 
 
-  def schemaDefFilter(schemaDefinitionDataTypes : Array[DataType], dataTypesIdToKeep : Array[DataType.Id]): Array[DataType] = {
+  def schemaDefFilter(schemaDefinitionDataTypes: Array[DataType], dataTypesIdToKeep: Array[DataType.Id]): Array[DataType] = {
     var schemaDef = schemaDefinitionDataTypes.filter(dataType => {
       dataTypesIdToKeep.contains(dataType._id)
     })
-    if(getAllIds(schemaDef).length != dataTypesIdToKeep.length){
-      schemaDef = schemaDefFilter(schemaDefinitionDataTypes,getAllIds(schemaDef))
+    if (getAllIds(schemaDef).length != dataTypesIdToKeep.length) {
+      schemaDef = schemaDefFilter(schemaDefinitionDataTypes, getAllIds(schemaDef))
     }
     schemaDef
   }
 
-  def getAllIds(schemaDef: Array[DataType]): Array[DataType.Id]={
-    schemaDef.flatMap(dt=>{
-      dt._type match{
-        case "Simple" => Array(dt._id)
-        case "Array" => Array(dt._id, dt.asInstanceOf[ArrayDataType].elementDataTypeId)
-        case "Struct" => dt.asInstanceOf[StructDataType].fields.map(attributeRef=>attributeRef.dataTypeId) ++ Array(dt._id)
-      }
-    })
+  def getAllIds(schemaDef: Array[DataType]): Array[DataType.Id] = {
+    schemaDef.flatMap {
+      case dt@(_: SimpleDataType) => Array(dt._id)
+      case dt@(adt: ArrayDataType) => Array(dt._id, adt.elementDataTypeId)
+      case dt@(sdt: StructDataType) => sdt.fields.map(attributeRef => attributeRef.dataTypeId) ++ Array(dt._id)
+    }
   }
-
-
-
 
 
 }
